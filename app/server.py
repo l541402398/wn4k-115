@@ -23,7 +23,7 @@ from .genre import (
 )
 from .p115 import P115Error
 from .service import MAX_PAGES, get_service
-from .site import CATEGORIES, GENRES, ORDERS, REGIONS
+from .site import CATEGORIES, GENRES, ORDERS, REGIONS, display_region
 
 app = FastAPI(title="蜗牛4K 精选 → 115 转存工作台", version="1.0.0")
 
@@ -264,11 +264,11 @@ def videos(
 
 @app.get("/api/facets")
 def facets() -> dict[str, Any]:
-    """站点支持的服务端筛选项（类型经实测枚举，非猜测）。"""
+    """站点支持的服务端筛选项（类型与地区均经实测枚举，非猜测）。"""
     return {
         "ok": True,
         "genres": GENRES,
-        "regions": REGIONS,
+        "regions": [{"value": v, "label": display_region(v)} for v in REGIONS],
         "orders": ORDERS,
         "categories": CATEGORIES,
     }

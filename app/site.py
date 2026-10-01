@@ -38,11 +38,52 @@ GENRES: list[str] = [
     "传记", "伦理", "古装",
 ]
 
-# 站点 areas 用 ISO 码与中文名混用，两者都实测可用
+# 站点 areas 用 ISO 码与中文名混用。
+# ⚠️ 重要：码与中文名在站点数据库里是**两批不相交的记录**
+# （实测 area=US 有 189 页，area=美国 只有 38 页，两边结果 ID 重合 0 条）。
+# 所以中文只用于**显示**，查询必须沿用页面里拿到的原值，绝不能替换。
+REGION_NAMES: dict[str, str] = {
+    "US": "美国", "CN": "中国", "HK": "中国香港", "TW": "中国台湾",
+    "JP": "日本", "KR": "韩国", "GB": "英国", "FR": "法国", "DE": "德国",
+    "IT": "意大利", "ES": "西班牙", "IN": "印度", "CA": "加拿大",
+    "AU": "澳大利亚", "BR": "巴西", "NL": "荷兰", "PL": "波兰",
+    "SE": "瑞典", "NO": "挪威", "DK": "丹麦", "FI": "芬兰", "RU": "俄罗斯",
+    "TH": "泰国", "MX": "墨西哥", "TR": "土耳其", "AR": "阿根廷",
+    "BE": "比利时", "CH": "瑞士", "AT": "奥地利", "IE": "爱尔兰",
+    "NZ": "新西兰", "SG": "新加坡", "MY": "马来西亚", "ID": "印度尼西亚",
+    "PH": "菲律宾", "VN": "越南", "PK": "巴基斯坦", "IR": "伊朗",
+    "IL": "以色列", "EG": "埃及", "ZA": "南非", "CL": "智利",
+    "CO": "哥伦比亚", "PE": "秘鲁", "PT": "葡萄牙", "GR": "希腊",
+    "CZ": "捷克", "HU": "匈牙利", "RO": "罗马尼亚", "UA": "乌克兰",
+    "IS": "冰岛", "AE": "阿联酋", "SA": "沙特阿拉伯", "KW": "科威特",
+    "LB": "黎巴嫩", "NP": "尼泊尔", "LK": "斯里兰卡", "MN": "蒙古",
+    "KH": "柬埔寨", "MM": "缅甸", "YU": "南斯拉夫", "SU": "苏联",
+    "CS": "捷克斯洛伐克", "EU": "欧洲", "AS": "亚洲", "AF": "非洲",
+    "NA": "纳米比亚",
+}
+
+
+def display_region(value: str) -> str:
+    """把地区值转成中文用于显示（查询仍用原值）。
+
+    支持 "US"、"US,GB"、"哥伦比亚 / 美国" 这类混合写法。
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    parts = [p.strip() for p in re.split(r"[,/、]", text) if p.strip()]
+    out: list[str] = []
+    for part in parts:
+        out.append(REGION_NAMES.get(part.upper(), part))
+    return " / ".join(out)
+
+# 站点支持的服务端筛选值（实测枚举：maxpage>0 才算存在）
 REGIONS: list[str] = [
-    "US", "CN", "JP", "KR", "HK", "TW", "GB", "FR", "DE", "IT", "ES", "IN",
-    "CA", "AU", "BR", "NL", "PL", "SE", "TH", "RU", "MX", "TR",
-    "美国", "日本", "韩国", "中国", "中国香港", "中国台湾",
+    "US", "JP", "HK", "CN", "FR", "GB", "IT", "KR", "DE", "IN", "TW", "ES",
+    "CA", "AU", "PL", "TH", "NL", "SE", "DK", "RU", "MX", "SU", "BR", "NO",
+    "FI", "TR", "AR", "BE", "CH", "AT", "IE", "NZ", "SG", "MY", "ID", "PH",
+    "VN", "PK", "IR", "IL", "EG", "ZA", "CL", "CO", "PT", "GR", "CZ", "HU",
+    "RO", "UA", "IS", "SA", "KW", "LB", "LK", "MN", "YU",
 ]
 
 # 站点支持的排序（服务端）

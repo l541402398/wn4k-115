@@ -67,6 +67,17 @@
     <button class="btn ghost small" id="btnClearSel">清空选择</button>
   </div>
   <section class="grid" id="grid"></section>
+  <div class="load-hint" id="loadHint"></div>
+  <div class="load-sentinel" id="loadSentinel"></div>
+  <div class="pager" id="pager">
+    <button class="btn ghost" id="pgPrev">← 上一页</button>
+    <span class="pg-info" id="pgInfo"></span>
+    <button class="btn ghost" id="pgNext">下一页 →</button>
+    <span class="page-jump">
+      跳到第 <input class="input" id="pgJump" type="number" min="1" value="1"> 页
+      <button class="btn ghost small" id="pgGo">跳转</button>
+    </span>
+  </div>
   <div class="empty" id="empty" hidden></div>
 </main>
 

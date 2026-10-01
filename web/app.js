@@ -18,7 +18,10 @@ const state = {
   selected: new Map(),   // vod_id -> {title, link_indexes}
   facets: { year: [], region: [], quality: [] },
   options: { genres: [], regions: [], orders: [], categories: [] },
+  totalPages: 0,
+  lastPage: 1,
   hasNext: false,
+  suppressAuto: false,
   cid: '0',
   crumb: [],
   template: '',
@@ -124,23 +127,33 @@ function syncTabs() {
 
 function renderFacets() {
   const bar = $('filterBar');
-  const parts = [];
+  const rows = [];
+  // 每种筛选独占一行；一行放不下会自动换行（CSS 控制），行首有缩进对齐
   const group = (label, key, values) => {
     if (!values || !values.length) return;
-    parts.push(`<span class="chip-sep">${label}</span>`);
-    for (const v of values.slice(0, 16)) {
-      const on = state[key] === v.value;
-      parts.push(`<span class="chip ${on ? 'on' : ''}" data-key="${key}" data-val="${esc(v.value)}">${esc(v.value)}${v.count ? ` <i>${v.count}</i>` : ''}</span>`);
-    }
+    const chips = values.slice(0, 18).map((v) => {
+      const val = typeof v === 'string' ? v : v.value;
+      const text = typeof v === 'string' ? v : (v.label || v.value);
+      const cnt = typeof v === 'string' ? '' : (v.count ? ` ${v.count}` : '');
+      const on = state[key] === val;
+      return `<span class="chip ${on ? 'on' : ''}" data-key="${key}" data-val="${esc(val)}"
+        >${esc(text)}${cnt}</span>`;
+    }).join('');
+    rows.push(`<div class="filter-row">
+      <span class="filter-label">${label}</span>
+      <span class="filter-items">${chips}</span>
+    </div>`);
   };
-  // 年份来自服务端分面；类型/地区来自站点支持的筛选清单
-  group('类型', 'genre', (state.options.genres || []).map((g) => ({ value: g })));
-  group('年份', 'year', state.facets.year);
-  group('地区', 'area', state.facets.region);
+
+  group('类型', 'genre', state.options.genres || []);
+  group('年份', 'year', state.facets.year || []);
+  group('地区', 'area', state.facets.region || []);
+
   if (state.year || state.area || state.genre) {
-    parts.push('<span class="chip" data-clear="1">✕ 清除筛选</span>');
+    rows.push(`<div class="filter-row"><span class="filter-label"></span>
+      <span class="filter-items"><span class="chip clear" data-clear="1">✕ 清除筛选</span></span></div>`);
   }
-  bar.innerHTML = parts.join('');
+  bar.innerHTML = rows.join('');
 
   bar.querySelectorAll('.chip').forEach((el) => {
     el.onclick = () => {
@@ -148,7 +161,7 @@ function renderFacets() {
         state.year = ''; state.area = ''; state.genre = '';
       } else {
         const key = el.dataset.key, val = el.dataset.val;
-        // 服务端筛选：切换后需要重新请求站点（结果集变了）
+        // 服务端筛选：切换后结果集变了，必须重新请求站点
         state[key] = (state[key] === val) ? '' : val;
       }
       state.page = 1;
@@ -185,6 +198,8 @@ async function load() {
     state.items = data.items;
     state.facets = data.facets;
     state.hasNext = data.has_next;
+    state.totalPages = data.total_pages || 0;
+    state.lastPage = data.last_page || data.page;
     const sf = data.server_filters || {};
     const active = [sf.year && `年份 ${sf.year}`, sf.area && `地区 ${sf.area}`, sf.class && `类型 ${sf.class}`]
       .filter(Boolean).join(' · ');
@@ -193,15 +208,57 @@ async function load() {
       (data.total_pages ? ` · 全站 ${data.total_pages} 页` : '') +
       (active ? ` · 筛选：${active}` : '') +
       `（单次最多 ${data.max_pages} 页）`;
-    $('btnMore').disabled = !data.has_next;
     renderFacets();
     renderList();
+    renderPager();
   } catch (e) {
     $('grid').innerHTML = '';
     $('empty').hidden = false;
     $('empty').textContent = '加载失败：' + e.message;
     $('btnMore').disabled = true;
   }
+}
+
+function renderPager() {
+  const cur = state.lastPage || 1;
+  const total = state.totalPages || 0;
+  // 累积多页时显示区间，避免与「当前页」混淆
+  const label = state.pages > 1 ? `第 ${state.page}–${cur} 页` : `第 ${cur} 页`;
+  $('pgInfo').textContent = total ? `${label} / 共 ${total} 页` : label;
+  $('pgPrev').disabled = state.page <= 1;
+  $('pgNext').disabled = !state.hasNext;
+  if ($('pgJump')) {
+    $('pgJump').value = String(cur + 1);
+    $('pgJump').max = String(total || 1);
+  }
+  $('loadHint').textContent = state.hasNext
+    ? (state.pages >= ACCUM_CAP
+        ? `当前已叠加 ${ACCUM_CAP} 页（单次上限），请用下方「下一页」继续`
+        : '向下滚动可自动加载下一页')
+    : '已经到底了';
+}
+
+/* 翻页：显式跳页时先按单页加载，避免刚跳完又被自动叠加一页 */
+function gotoPage(n) {
+  const target = Math.max(1, Number(n) || 1);
+  if (state.totalPages && target > state.totalPages) return;
+  state.page = target;
+  state.pages = 1;
+  state.suppressAuto = true;   // 本次加载后不自动续页，等用户再滚动
+  load().finally(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // 稍后恢复自动叠加，但要求用户先滚动离开底部
+    setTimeout(() => { state.suppressAuto = false; }, 800);
+  });
+}
+
+function nextPage() {
+  if (!state.hasNext) return;
+  gotoPage((state.lastPage || 1) + 1);
+}
+
+function prevPage() {
+  gotoPage(Math.max(1, (state.page || 1) - 1));
 }
 
 function passesFilters(it) {
@@ -729,6 +786,57 @@ $('minScore').onchange = () => {
   renderList();
 };
 $('btnMore').onclick = () => { state.pages = Math.min(state.pages + 1, 5); state.page = 1; load(); };
+
+/* ---------- 底部分页 ---------- */
+$('pgPrev').onclick = prevPage;
+$('pgNext').onclick = nextPage;
+$('pgGo').onclick = () => gotoPage($('pgJump').value);
+$('pgJump').onkeydown = (e) => { if (e.key === 'Enter') gotoPage($('pgJump').value); };
+
+/* ---------- 滚动到底自动加载下一页（叠加模式） ---------- */
+let loadingMore = false;
+const ACCUM_CAP = 5;   // 与后端 MAX_PAGES 一致：单次叠加最多 5 页
+
+function setupInfiniteScroll() {
+  const sentinel = $('loadSentinel');
+  if (!sentinel || !('IntersectionObserver' in window)) return;
+  const io = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      if (loadingMore || !state.hasNext || state.suppressAuto) continue;
+      // 叠加模式受 5 页上限约束：到达上限后由用户用底部翻页继续
+      if (state.pages >= ACCUM_CAP) {
+        $('loadHint').textContent = `当前已叠加 ${ACCUM_CAP} 页（单次上限），请用底部「下一页」继续`;
+        continue;
+      }
+      loadingMore = true;
+      state.pages += 1;   // 保持 page 不变，向后叠加
+      load().finally(() => { loadingMore = false; });
+    }
+  }, { rootMargin: '600px' });
+  io.observe(sentinel);
+}
+
+/* 滚动接近底部时给个提示（不额外发请求） */
+function setupScrollHint() {
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 300;
+      if (!state.hasNext) { $('loadHint').textContent = '已经到底了'; return; }
+      if (state.pages >= ACCUM_CAP && nearBottom) {
+        $('loadHint').textContent = `当前已叠加 ${ACCUM_CAP} 页（单次上限），请用底部「下一页」继续`;
+      } else if (nearBottom) {
+        $('loadHint').textContent = '正在加载下一页…';
+      } else {
+        $('loadHint').textContent = '向下滚动可自动加载下一页';
+      }
+    });
+  }, { passive: true });
+}
 $('btnClearSel').onclick = () => { state.selected.clear(); updateSelBar(); renderList(); };
 $('btnTransferTop').onclick = () => openTransfer();
 
@@ -748,6 +856,8 @@ document.onkeydown = (e) => {
   await loadLayout();
   await loadOptions();
   await loadTabs();
+  setupInfiniteScroll();
+  setupScrollHint();
   await load();
   updateSelBar();
 })();

@@ -21,7 +21,13 @@ from . import store
 from .config import load_config
 from .genre import infer_genre, load_genre_rules, render_path_template, sanitize_segment
 from .p115 import P115Client, P115Error, parse_share_url
-from .site import CATEGORIES, CATEGORY_BY_ID, Wn4kClient, classify_link
+from .site import (
+    CATEGORIES,
+    CATEGORY_BY_ID,
+    Wn4kClient,
+    classify_link,
+    display_region,
+)
 
 # 单次请求最多允许抓取的列表页数（必须由用户显式触发）
 MAX_PAGES = 5
@@ -434,24 +440,32 @@ class Service:
 
     @staticmethod
     def _facets(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-        def count_by(field: str) -> list[dict[str, Any]]:
+        def count_by(field: str, *, region: bool = False) -> list[dict[str, Any]]:
             buckets: dict[str, int] = {}
             for it in items:
                 value = (it.get(field) or "").strip()
                 if not value:
                     continue
-                # 地区可能是 "US,GB"
-                for part in ([value] if field != "region" else [p.strip() for p in value.split(",")]):
+                # 地区可能是 "US,GB" 或 "哥伦比亚 / 美国"
+                parts = (
+                    [p.strip() for p in re.split(r"[,/、]", value) if p.strip()]
+                    if region else [value]
+                )
+                for part in parts:
                     if part:
                         buckets[part] = buckets.get(part, 0) + 1
-            return [
-                {"value": k, "count": v}
-                for k, v in sorted(buckets.items(), key=lambda kv: (-kv[1], kv[0]))
-            ]
+            out: list[dict[str, Any]] = []
+            for k, v in sorted(buckets.items(), key=lambda kv: (-kv[1], kv[0])):
+                entry: dict[str, Any] = {"value": k, "count": v}
+                if region:
+                    # 显示中文，但 value 保留原值用于查询
+                    entry["label"] = display_region(k)
+                out.append(entry)
+            return out
 
         return {
             "year": count_by("year")[:40],
-            "region": count_by("region")[:30],
+            "region": count_by("region", region=True)[:30],
             "quality": count_by("quality")[:30],
         }
 

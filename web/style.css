@@ -75,13 +75,22 @@ button, input, select { font: inherit; }
 select.input { min-width: 120px; }
 .muted { color: var(--muted); font-size: 12px; }
 
-.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.chips { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .chips:empty { display: none; }
+/* 每种筛选独占一行；标签固定宽度，选项自动换行并与首列对齐 */
+.filter-row { display: flex; align-items: flex-start; gap: 10px; }
+.filter-label {
+  flex: none; width: 40px; text-align: right; padding-top: 4px;
+  color: var(--muted); font-size: 12px; line-height: 1.6;
+}
+.filter-items { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line); color: var(--muted); background: var(--panel-2);
+  white-space: nowrap;
 }
 .chip.on { border-color: var(--accent); color: #fff; background: rgba(76,141,255,.18); }
+.chip.clear { border-color: var(--danger); color: var(--danger); }
 .chip-sep { color: var(--muted); font-size: 12px; padding: 4px 2px; align-self: center; }
 
 /* ---------- 网格 ---------- */
@@ -123,6 +132,21 @@ main { padding: 18px 20px 80px; }
 .empty { text-align: center; color: var(--muted); padding: 60px 0; }
 .skeleton { height: 300px; border-radius: var(--radius); background: linear-gradient(90deg,#171a21,#1e222b,#171a21); background-size: 200% 100%; animation: sk 1.2s infinite; }
 @keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* ---------- 底部分页 / 加载更多 ---------- */
+.pager {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin: 22px 0 8px; flex-wrap: wrap;
+}
+.pager .pg-info { color: var(--muted); font-size: 12.5px; }
+.pager .btn { min-width: 96px; }
+.page-jump {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 12.5px;
+}
+.page-jump .input { min-width: 68px; width: 68px; text-align: center; }
+.load-sentinel { height: 1px; }
+.load-hint { text-align: center; color: var(--muted); font-size: 12.5px; padding: 10px 0 4px; }
 
 /* ---------- 弹窗 ---------- */
 .modal {
