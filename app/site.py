@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import html
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin
@@ -195,6 +197,35 @@ def _is_masked(text: str) -> bool:
     return "******" in t or "登录后可见" in t or "登录后可" in t
 
 
+class Wn4kBlocked(RuntimeError):
+    """站点返回了反爬/频率限制页，而不是真实内容。
+
+    蜗牛对**搜索**有频率限制（页面上写「请不要频繁操作，搜索时间间隔为 3 秒」），
+    触发后会返回一个「跳转提示」页。这类响应**绝不能当成「没有结果」**，
+    否则用户会以为是站点没这部片。
+    """
+
+
+def _is_block_page(html_text: str) -> bool:
+    """判断响应是否是站点的频率限制/跳转提示页。"""
+    text = html_text or ""
+    if not text:
+        return False
+    if "跳转提示" in text:
+        return True
+    if "请不要频繁操作" in text or "搜索时间间隔" in text:
+        return True
+    if re.search(r'http-equiv=["\']?refresh["\']?', text, re.I) and "history.back" in text:
+        return True
+    return False
+
+
+# 搜索限流时页面提示的间隔，留一点余量
+SEARCH_COOLDOWN = 3.4
+_last_search_at = 0.0
+_search_lock = threading.Lock()
+
+
 class Wn4kClient:
     """站点客户端；一个实例对应一个登录会话。"""
 
@@ -337,6 +368,12 @@ class Wn4kClient:
         return self._parse_list(path, source=f"category:{type_id}", page=page, params=params)
 
     def search(self, keyword: str, page: int = 1, *, year: str = "", order: str = "") -> dict[str, Any]:
+        """站内搜索。
+
+        ⚠️ 站点对搜索有频率限制（页面原文：「请不要频繁操作，搜索时间间隔为 3 秒」），
+        触发限制会返回「跳转提示」页。这里会等待并重试；若仍被限制则抛
+        Wn4kBlocked，绝不静默返回空结果。
+        """
         from urllib.parse import quote
 
         page = max(1, int(page))
@@ -347,7 +384,29 @@ class Wn4kClient:
             params["year"] = year
         if order:
             params["order"] = order
-        return self._parse_list(path, source="search", page=page, params=params)
+
+        # 全局节流：保证两次搜索之间至少间隔 SEARCH_COOLDOWN
+        global _last_search_at
+        with _search_lock:
+            wait = SEARCH_COOLDOWN - (time.monotonic() - _last_search_at)
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                for attempt in range(3):
+                    resp = self.http.get(self.url(path), params=params or None)
+                    body = resp.text or ""
+                    if not _is_block_page(body):
+                        _last_search_at = time.monotonic()
+                        return self._parse_list_html(
+                            body, source="search", page=page, path=path
+                        )
+                    # 被限流：等一个完整间隔再来
+                    time.sleep(SEARCH_COOLDOWN * (attempt + 1))
+                raise Wn4kBlocked(
+                    "站点搜索频率受限（提示需间隔 3 秒），已重试仍被拦截。请稍等几秒再搜。"
+                )
+            finally:
+                _last_search_at = time.monotonic()
 
     def _parse_list(
         self,
@@ -359,7 +418,22 @@ class Wn4kClient:
     ) -> dict[str, Any]:
         resp = self.http.get(self.url(path), params=params or None)
         resp.encoding = resp.encoding or "utf-8"
-        soup = BeautifulSoup(resp.text or "", "lxml")
+        body = resp.text or ""
+        if _is_block_page(body):
+            raise Wn4kBlocked(
+                "站点返回了频率限制页（请稍等几秒重试，搜索间隔需 3 秒以上）。"
+            )
+        return self._parse_list_html(body, source=source, page=page, path=path)
+
+    def _parse_list_html(
+        self,
+        html_text: str,
+        *,
+        source: str,
+        page: int,
+        path: str = "",
+    ) -> dict[str, Any]:
+        soup = BeautifulSoup(html_text or "", "lxml")
         items: list[VodItem] = []
         seen: set[int] = set()
 

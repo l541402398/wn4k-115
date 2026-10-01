@@ -91,6 +91,25 @@ def main() -> int:
             break
     ok &= check("2026 筛选能跨页找到目标影片", found_on is not None, f"第 {found_on} 页" if found_on else "前 3 页未找到")
 
+    print("\n=== 6c. 搜索稳定性（站点对搜索有 3 秒频率限制）===")
+    # 站点会返回「跳转提示」拦截页；旧代码把它当成 0 条结果并缓存，
+    # 导致同一关键词时好时坏。这里连续搜同一词，必须次次都有结果。
+    from app.site import Wn4kBlocked
+
+    counts = []
+    blocked = 0
+    for i in range(3):
+        try:
+            r = svc.list_videos(keyword="终结者", page=1, pages=1)
+            counts.append(r["collected"])
+        except Wn4kBlocked:
+            blocked += 1
+    ok &= check("连续搜索 3 次都返回结果（不再间歇为空）",
+                all(c > 0 for c in counts) and not blocked, f"各次 {counts}")
+    b = svc.list_videos(keyword="爆发夜", page=1, pages=1)
+    ok &= check("能搜到曾在第 2 页的影片", b["collected"] >= 1,
+                f"爆发夜 {b['collected']} 条")
+
     print("\n=== 7. 分页上限（防全站拉取）===")
     multi = svc.list_videos(category=4, page=1, pages=2)
     ok &= check(f"可显式加载 2 页（上限 {MAX_PAGES}）", multi["pages_loaded"] == 2, f"{multi['collected']} 条")

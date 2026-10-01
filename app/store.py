@@ -94,6 +94,34 @@ def purge_expired() -> int:
         return cur.rowcount
 
 
+def purge_empty_results() -> int:
+    """清掉历史遗留的「0 条」列表缓存。
+
+    这些多半是搜索被限流/解析失败时误存的，留着会让用户在 TTL 内
+    一直看到「搜不到」。空结果本来就不该被缓存。
+    """
+    conn = _connect()
+    with _lock:
+        rows = conn.execute(
+            "SELECT key, value FROM cache WHERE key LIKE '%list%' OR key LIKE '%search%'"
+        ).fetchall()
+        victims = [
+            k for k, v in rows
+            if (lambda d: isinstance(d, dict) and not d.get("items"))(_safe_json(v))
+        ]
+        for k in victims:
+            conn.execute("DELETE FROM cache WHERE key = ?", (k,))
+        conn.commit()
+        return len(victims)
+
+
+def _safe_json(text: str):
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def record(
     action: str,
     *,

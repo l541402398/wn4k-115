@@ -64,6 +64,35 @@ function fmtSize(n) {
   return v.toFixed(v >= 10 ? 0 : 1) + u[i];
 }
 
+/* 复制到剪贴板。
+   注意：http://127.0.0.1 属于安全上下文，navigator.clipboard 可用；
+   局域网 http:// 访问时不可用，因此保留 execCommand 回退。 */
+function copyText(text, okMsg = '已复制') {
+  const value = String(text || '');
+  if (!value) { toast('没有可复制的内容'); return; }
+  const fallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast(okMsg);
+    } catch (e) {
+      toast('复制失败，请手动选择文本');
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(value).then(() => toast(okMsg)).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+
 /* ---------------- 状态栏 ---------------- */
 async function refreshStatus() {
   try {
@@ -356,14 +385,24 @@ async function openDetail(id) {
   try {
     const d = await api(`/api/videos/${id}`);
     const links = (d.links || []).map((l, i) => {
-      const cls = l.locked ? 'locked-note' : '';
+      // 显示真实网盘地址，方便复制分享；未登录站点时地址不可见
+      const canShare = !l.locked && l.url;
       const action = l.locked
         ? '<span class="locked-note">需登录站点</span>'
-        : `<button class="btn small primary" data-link="${i}">转存</button>`;
+        : `<span class="link-actions">
+             ${canShare ? `<button class="btn small ghost" data-copy="${i}">复制链接</button>` : ''}
+             <button class="btn small primary" data-link="${i}">转存</button>
+           </span>`;
+      const urlLine = l.locked
+        ? '<span class="locked-note">登录后可见</span>'
+        : (l.url
+            ? `<span class="url" data-url="${i}" title="点击复制">${esc(l.url)}</span>`
+            : '<span class="muted">（无可分享地址）</span>');
       return `<div class="link-item">
-        <div>
+        <div class="link-body">
           <div class="lt">${esc(l.title || '(无标题)')}</div>
-          <div class="lg">${esc(l.group || '')} · ${esc(l.display || '')}</div>
+          <div class="lg">${esc(l.group || '')}${l.receive_code ? ` · 提取码 <b>${esc(l.receive_code)}</b>` : ''}</div>
+          <div class="lg">${urlLine}</div>
         </div>
         <div>${action}</div>
       </div>`;
@@ -388,6 +427,19 @@ async function openDetail(id) {
 
     $('detailBody').querySelectorAll('[data-link]').forEach((btn) => {
       btn.onclick = () => transferSingle(id, Number(btn.dataset.link));
+    });
+    // 复制真实网盘地址，方便分享
+    $('detailBody').querySelectorAll('[data-copy]').forEach((btn) => {
+      btn.onclick = () => {
+        const l = (d.links || [])[Number(btn.dataset.copy)] || {};
+        copyText(l.url || '', '链接已复制');
+      };
+    });
+    $('detailBody').querySelectorAll('.url[data-url]').forEach((el) => {
+      el.onclick = () => {
+        const l = (d.links || [])[Number(el.dataset.url)] || {};
+        copyText(l.url || '', '链接已复制');
+      };
     });
     const pickAll = $('detailBody').querySelector('#btnPickAll');
     if (pickAll) pickAll.onclick = () => {

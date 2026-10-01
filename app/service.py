@@ -32,6 +32,10 @@ from .site import (
 # 单次请求最多允许抓取的列表页数（必须由用户显式触发）
 MAX_PAGES = 5
 
+# 缓存键版本号：改动解析/筛选逻辑后递增，可让旧的脏缓存自动失效。
+# v2：修复搜索限流被误缓存为空结果的问题
+CACHE_VERSION = "v2"
+
 # 清晰度优先级，用于排序
 _QUALITY_RANKS: list[tuple[str, int]] = [
     ("4k", 100),
@@ -160,6 +164,16 @@ class Service:
     def boot(self) -> dict[str, Any]:
         cfg = load_config()
         with self._lock:
+            # 清理历史遗留的空结果缓存（曾被限流误存，会导致「搜不到」）
+            try:
+                removed = store.purge_empty_results()
+                if removed:
+                    store.record(
+                        "cache_cleanup", ok=True, payload={"removed": removed},
+                        detail=f"清理了 {removed} 条空的列表缓存",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
             self.site = Wn4kClient(
                 base_url=cfg["wn4k"]["base_url"],
                 min_interval=float(cfg["wn4k"]["min_interval"]),
@@ -190,7 +204,13 @@ class Service:
             self.site.check_login()
             site_info = self.site.user_info()
         if self.p115:
-            p115_info = self.p115.user_info()
+            # 缓存过「已登录」时不做强校验（省请求）；但若缓存说已登录，
+            # 就顺手验一次，避免 cookie 已失效界面却仍显示已登录。
+            cached = self.p115.user_info()
+            if cached.get("logged_in"):
+                p115_info = self.p115.user_info(refresh=True)
+            else:
+                p115_info = cached
         return {
             "site": {
                 "base_url": self.site.base_url if self.site else "",
@@ -387,11 +407,11 @@ class Service:
         for offset in range(pages):
             p = page + offset
             last_page = p
-            key = "|".join([
-                "list", "search" if keyword else "cat",
+            cache_key = "|".join([
+                CACHE_VERSION, "list", "search" if keyword else "cat",
                 str(category or 1), keyword, str(p), year, area, genre, order,
             ])
-            data = store.get(key)
+            data = store.get(cache_key)
             if not data:
                 if keyword:
                     data = self.site.search(keyword, p, year=year, order=order)
@@ -399,7 +419,11 @@ class Service:
                     data = self.site.list_category(
                         int(category or 1), p, year=year, area=area, cls=genre, order=order
                     )
-                store.put(key, data, ttl)
+                # 只缓存有内容的结果：
+                # 「0 条」既可能是真的没收录，也可能是被限流/解析失败，
+                # 一旦把后者缓存下来，就会在 TTL 内一直骗用户「搜不到」。
+                if data.get("items"):
+                    store.put(cache_key, data, ttl)
             total_pages = max(total_pages, int(data.get("total_pages") or 0))
             for item in data.get("items") or []:
                 vid = int(item.get("id") or 0)

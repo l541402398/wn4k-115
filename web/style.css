@@ -184,11 +184,23 @@ main { padding: 18px 20px 80px; }
 .desc { margin: 12px 0; color: #cfd6e2; font-size: 13px; }
 .link-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .link-item {
-  display: flex; justify-content: space-between; gap: 10px; align-items: center;
+  display: flex; justify-content: space-between; gap: 10px; align-items: flex-start;
   padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
 }
+.link-item .link-body { min-width: 0; flex: 1; }
 .link-item .lt { font-size: 12.5px; word-break: break-all; }
-.link-item .lg { color: var(--muted); font-size: 11px; }
+.link-item .lg { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.link-item .lg b { color: var(--accent-2); }
+.link-actions { display: inline-flex; gap: 6px; flex: none; }
+/* 真实网盘地址：可点击复制 */
+.link-item .url {
+  display: inline-block; max-width: 100%; cursor: pointer;
+  font-family: Consolas, "Courier New", monospace;
+  color: var(--accent); background: rgba(76,141,255,.08);
+  border: 1px solid rgba(76,141,255,.25); border-radius: 6px;
+  padding: 1px 6px; word-break: break-all; user-select: all;
+}
+.link-item .url:hover { border-color: var(--accent); background: rgba(76,141,255,.16); }
 .locked-note { color: var(--warn); font-size: 13px; }
 
 /* ---------- 目录选择 ---------- */

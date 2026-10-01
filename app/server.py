@@ -23,7 +23,7 @@ from .genre import (
 )
 from .p115 import P115Error
 from .service import MAX_PAGES, get_service
-from .site import CATEGORIES, GENRES, ORDERS, REGIONS, display_region
+from .site import CATEGORIES, GENRES, ORDERS, REGIONS, Wn4kBlocked, display_region
 
 app = FastAPI(title="蜗牛4K 精选 → 115 转存工作台", version="1.0.0")
 
@@ -258,6 +258,9 @@ def videos(
             order_dir=order_dir,
         )
         return {"ok": True, "category": category, "keyword": keyword.strip(), **data}
+    except Wn4kBlocked as exc:
+        # 频率限制要明确告知，不能伪装成「没有结果」
+        return _fail(exc, 429)
     except Exception as exc:  # noqa: BLE001
         return _fail(exc)
 
