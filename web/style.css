@@ -91,6 +91,8 @@ select.input { min-width: 120px; }
 }
 .chip.on { border-color: var(--accent); color: #fff; background: rgba(76,141,255,.18); }
 .chip.clear { border-color: var(--danger); color: var(--danger); }
+.chip-input { display: inline-flex; align-items: center; gap: 6px; }
+.chip-input .input { min-width: 76px; width: 76px; padding: 3px 8px; font-size: 12px; }
 .chip-sep { color: var(--muted); font-size: 12px; padding: 4px 2px; align-self: center; }
 
 /* ---------- 网格 ---------- */

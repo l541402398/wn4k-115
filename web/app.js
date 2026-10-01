@@ -93,12 +93,9 @@ async function loadOptions() {
     state.options = {
       genres: d.genres || [],
       regions: d.regions || [],
-      orders: d.orders || [],
+      orders: (d.orders || []).filter((o) => o.value),   // 站内排序已作为筛选行，去掉空值项
       categories: d.categories || [],
     };
-    $('svOrder').innerHTML = (d.orders || []).map((o) =>
-      `<option value="${esc(o.value)}">${esc(o.name)}</option>`).join('') ||
-      '<option value="">网站默认</option>';
   } catch (e) { /* 忽略 */ }
 }
 
@@ -128,46 +125,76 @@ function syncTabs() {
 function renderFacets() {
   const bar = $('filterBar');
   const rows = [];
-  // 每种筛选独占一行；一行放不下会自动换行（CSS 控制），行首有缩进对齐
-  const group = (label, key, values) => {
-    if (!values || !values.length) return;
-    const chips = values.slice(0, 18).map((v) => {
+  // 每种筛选独占一行；选项过多时行内换行并保持缩进对齐。
+  //
+  // 两个刻意的设计决定：
+  // 1) 选项上**不显示数量**。计数只反映当前页，而点击后是站点全站检索，
+  //    两者口径不同，显示数字会与实际结果对不上。
+  // 2) 类型与地区用**站点完整清单**（各 21 / 57 项），而不是当前页出现过的值。
+  //    否则「第 1 页没有德国片」就永远选不到德国——这正是年份筛选曾经的 bug。
+  const group = (label, key, values, extra = '') => {
+    const list = values || [];
+    if (!list.length && !extra) return;
+    const chips = list.map((v) => {
       const val = typeof v === 'string' ? v : v.value;
-      const text = typeof v === 'string' ? v : (v.label || v.value);
-      const cnt = typeof v === 'string' ? '' : (v.count ? ` ${v.count}` : '');
+      const text = typeof v === 'string' ? v : (v.label || v.name || v.value);
       const on = state[key] === val;
       return `<span class="chip ${on ? 'on' : ''}" data-key="${key}" data-val="${esc(val)}"
-        >${esc(text)}${cnt}</span>`;
+        >${esc(text)}</span>`;
     }).join('');
     rows.push(`<div class="filter-row">
       <span class="filter-label">${label}</span>
-      <span class="filter-items">${chips}</span>
+      <span class="filter-items">${chips}${extra}</span>
     </div>`);
   };
 
   group('类型', 'genre', state.options.genres || []);
-  group('年份', 'year', state.facets.year || []);
-  group('地区', 'area', state.facets.region || []);
 
-  if (state.year || state.area || state.genre) {
+  // 年份：常用年份取自当前页，另给输入框以便选任意年份（站点服务端支持任意年份）
+  const yearExtra = `<span class="chip-input">
+    <input class="input tiny" id="yearInput" placeholder="年份" value="${esc(state.year || '')}">
+    <button class="btn ghost small" id="yearGo">确定</button>
+  </span>`;
+  group('年份', 'year', state.facets.year || [], yearExtra);
+
+  group('地区', 'area', state.options.regions || []);
+  group('排序', 'serverOrder', state.options.orders || []);
+
+  if (state.year || state.area || state.genre || state.serverOrder) {
     rows.push(`<div class="filter-row"><span class="filter-label"></span>
       <span class="filter-items"><span class="chip clear" data-clear="1">✕ 清除筛选</span></span></div>`);
   }
   bar.innerHTML = rows.join('');
 
-  bar.querySelectorAll('.chip').forEach((el) => {
+  bar.querySelectorAll('.chip[data-key]').forEach((el) => {
     el.onclick = () => {
-      if (el.dataset.clear) {
-        state.year = ''; state.area = ''; state.genre = '';
-      } else {
-        const key = el.dataset.key, val = el.dataset.val;
-        // 服务端筛选：切换后结果集变了，必须重新请求站点
-        state[key] = (state[key] === val) ? '' : val;
-      }
-      state.page = 1;
+      const key = el.dataset.key, val = el.dataset.val;
+      // 服务端筛选：切换后结果集变了，必须重新请求站点
+      state[key] = (state[key] === val) ? '' : val;
+      state.page = 1; state.pages = 1;
       load();
     };
   });
+  const clearBtn = bar.querySelector('.chip[data-clear]');
+  if (clearBtn) clearBtn.onclick = () => {
+    state.year = ''; state.area = ''; state.genre = ''; state.serverOrder = '';
+    state.page = 1; state.pages = 1;
+    load();
+  };
+
+  // 年份输入框
+  const yInput = $('yearInput');
+  if (yInput) {
+    const applyYear = () => {
+      const v = (yInput.value || '').trim();
+      if (v && !/^(19|20)\d{2}$/.test(v)) { toast('请输入 4 位年份，如 2026'); return; }
+      state.year = v;
+      state.page = 1; state.pages = 1;
+      load();
+    };
+    $('yearGo').onclick = applyYear;
+    yInput.onkeydown = (e) => { if (e.key === 'Enter') applyYear(); };
+  }
 }
 
 /* ---------------- 列表 ---------------- */
@@ -778,7 +805,6 @@ $('searchInput').onkeydown = (e) => {
   load();
 };
 $('sortSelect').onchange = () => { state.sort = $('sortSelect').value; load(); };
-$('svOrder').onchange = () => { state.serverOrder = $('svOrder').value; state.page = 1; load(); };
 $('orderSelect').onchange = () => { state.orderDir = $('orderSelect').value; load(); };
 $('minScore').onchange = () => {
   const v = $('minScore').value;
