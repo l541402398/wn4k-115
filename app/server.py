@@ -23,7 +23,7 @@ from .genre import (
 )
 from .p115 import P115Error
 from .service import MAX_PAGES, get_service
-from .site import CATEGORIES
+from .site import CATEGORIES, GENRES, ORDERS, REGIONS
 
 app = FastAPI(title="蜗牛4K 精选 → 115 转存工作台", version="1.0.0")
 
@@ -235,32 +235,43 @@ def videos(
     page: int = Query(1, ge=1),
     pages: int = Query(1, ge=1, le=MAX_PAGES),
     keyword: str = Query(""),
-    years: str = Query(""),
-    regions: str = Query(""),
-    qualities: str = Query(""),
+    year: str = Query(""),
+    area: str = Query(""),
+    genre: str = Query(""),
+    order: str = Query(""),
     min_score: float | None = Query(None),
     sort: str = Query("default"),
-    order: str = Query("desc"),
+    order_dir: str = Query("desc"),
 ) -> Any:
-    def split(value: str) -> list[str]:
-        return [v.strip() for v in (value or "").split(",") if v.strip()]
-
     try:
         data = _svc().list_videos(
             category=category,
             page=page,
             pages=pages,
             keyword=keyword.strip(),
-            years=split(years),
-            regions=split(regions),
-            qualities=split(qualities),
+            year=year.strip(),
+            area=area.strip(),
+            genre=genre.strip(),
+            order=order.strip(),
             min_score=min_score,
             sort=sort,
-            order=order,
+            order_dir=order_dir,
         )
         return {"ok": True, "category": category, "keyword": keyword.strip(), **data}
     except Exception as exc:  # noqa: BLE001
         return _fail(exc)
+
+
+@app.get("/api/facets")
+def facets() -> dict[str, Any]:
+    """站点支持的服务端筛选项（类型经实测枚举，非猜测）。"""
+    return {
+        "ok": True,
+        "genres": GENRES,
+        "regions": REGIONS,
+        "orders": ORDERS,
+        "categories": CATEGORIES,
+    }
 
 
 @app.get("/api/videos/{vod_id}")

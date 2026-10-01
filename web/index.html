@@ -30,9 +30,13 @@
   <div class="toolbar-row">
     <input class="input" id="searchInput" placeholder="站内搜索片名…（回车）">
     <label class="field">
-      <span>排序</span>
+      <span>站内排序</span>
+      <select id="svOrder"><option value="">网站默认</option></select>
+    </label>
+    <label class="field">
+      <span>本地排序</span>
       <select id="sortSelect">
-        <option value="default">网站默认</option>
+        <option value="default">不额外排序</option>
         <option value="score">评分</option>
         <option value="year">年份</option>
         <option value="quality">清晰度</option>

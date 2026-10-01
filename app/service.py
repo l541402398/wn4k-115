@@ -63,8 +63,17 @@ def _year_from_tags(tags: list[str] | None) -> str:
     return ""
 
 
-def build_path_context(detail: dict[str, Any], *, category_name: str = "") -> dict[str, str]:
-    """把详情页信息整理成目录模板可用的上下文。"""
+def build_path_context(
+    detail: dict[str, Any],
+    *,
+    category_name: str = "",
+    genre_hint: str = "",
+) -> dict[str, str]:
+    """把详情页信息整理成目录模板可用的上下文。
+
+    genre_hint 优先：如果用户是按站点真实类型（?class=动作）浏览/转存的，
+    那就是权威值，不再做关键词猜测。否则回退到本地关键词推断。
+    """
     tags = [str(t or "").strip() for t in (detail.get("tags") or [])]
     quality = ""
     region = ""
@@ -77,11 +86,13 @@ def build_path_context(detail: dict[str, Any], *, category_name: str = "") -> di
         if not region and re.fullmatch(r"[A-Za-z]{2}(,[A-Za-z]{2})*", tag):
             region = tag
 
-    genre = infer_genre(
-        title=detail.get("title") or "",
-        desc=detail.get("desc") or "",
-        extra=" ".join([quality] + tags),
-    )
+    genre = (genre_hint or "").strip()
+    if not genre:
+        genre = infer_genre(
+            title=detail.get("title") or "",
+            desc=detail.get("desc") or "",
+            extra=" ".join([quality] + tags),
+        )
     return {
         "category": sanitize_segment(category_name),
         "genre": sanitize_segment(genre),
@@ -346,13 +357,19 @@ class Service:
         page: int = 1,
         pages: int = 1,
         keyword: str = "",
-        years: list[str] | None = None,
-        regions: list[str] | None = None,
-        qualities: list[str] | None = None,
+        year: str = "",
+        area: str = "",
+        genre: str = "",
+        order: str = "",
         min_score: float | None = None,
         sort: str = "default",
-        order: str = "desc",
+        order_dir: str = "desc",
     ) -> dict[str, Any]:
+        """按分类/搜索列出影片。
+
+        筛选走**服务端**（站点支持 ?year= ?area= ?class= ?order=），
+        这样「2026」拿到的是全站该年份的结果，而不是只筛当前页。
+        """
         assert self.site is not None
         pages = max(1, min(int(pages or 1), MAX_PAGES))
         collected: list[dict[str, Any]] = []
@@ -364,16 +381,18 @@ class Service:
         for offset in range(pages):
             p = page + offset
             last_page = p
-            if keyword:
-                key = f"list:search:{keyword}:{p}"
-            else:
-                key = f"list:cat:{category}:{p}"
+            key = "|".join([
+                "list", "search" if keyword else "cat",
+                str(category or 1), keyword, str(p), year, area, genre, order,
+            ])
             data = store.get(key)
             if not data:
                 if keyword:
-                    data = self.site.search(keyword, p)
+                    data = self.site.search(keyword, p, year=year, order=order)
                 else:
-                    data = self.site.list_category(int(category or 1), p)
+                    data = self.site.list_category(
+                        int(category or 1), p, year=year, area=area, cls=genre, order=order
+                    )
                 store.put(key, data, ttl)
             total_pages = max(total_pages, int(data.get("total_pages") or 0))
             for item in data.get("items") or []:
@@ -384,27 +403,33 @@ class Service:
             if not data.get("has_next"):
                 break
 
-        facets = self._facets(collected)
-        filtered = self._apply_filters(
-            collected,
-            years=years,
-            regions=regions,
-            qualities=qualities,
-            min_score=min_score,
-        )
-        sorted_items = self._apply_sort(filtered, sort, order)
+        # 服务端已按 year/area/class 筛过，这里只做评分下限与本地排序
+        filtered = collected
+        if min_score is not None:
+            def score_of(item: dict[str, Any]) -> float:
+                try:
+                    return float(item.get("score") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            filtered = [i for i in filtered if score_of(i) >= float(min_score)]
+
+        # 站点自带排序时，若用户没额外指定排序就保留站点顺序
+        if sort and sort != "default":
+            filtered = self._apply_sort(filtered, sort, order_dir)
 
         return {
-            "items": sorted_items,
+            "items": filtered,
             "collected": len(collected),
-            "shown": len(sorted_items),
+            "shown": len(filtered),
             "page": page,
             "last_page": last_page,
             "pages_loaded": last_page - page + 1,
             "total_pages": total_pages,
             "has_next": bool(total_pages and last_page < total_pages),
             "max_pages": MAX_PAGES,
-            "facets": facets,
+            "server_filters": {"year": year, "area": area, "class": genre, "order": order},
+            "facets": self._facets(collected),
         }
 
     @staticmethod
@@ -429,33 +454,6 @@ class Service:
             "region": count_by("region")[:30],
             "quality": count_by("quality")[:30],
         }
-
-    @staticmethod
-    def _apply_filters(
-        items: list[dict[str, Any]],
-        *,
-        years: list[str] | None,
-        regions: list[str] | None,
-        qualities: list[str] | None,
-        min_score: float | None,
-    ) -> list[dict[str, Any]]:
-        out = items
-        if years:
-            wanted = set(years)
-            out = [i for i in out if (i.get("year") or "") in wanted]
-        if regions:
-            out = [i for i in out if _contains_any(i.get("region") or "", regions)]
-        if qualities:
-            out = [i for i in out if _contains_any(i.get("quality") or "", qualities)]
-        if min_score is not None:
-            def score_of(item: dict[str, Any]) -> float:
-                try:
-                    return float(item.get("score") or 0)
-                except (TypeError, ValueError):
-                    return 0.0
-
-            out = [i for i in out if score_of(i) >= float(min_score)]
-        return out
 
     @staticmethod
     def _apply_sort(items: list[dict[str, Any]], sort: str, order: str) -> list[dict[str, Any]]:
@@ -598,7 +596,11 @@ class Service:
             if not category_name and sel.get("category"):
                 category_name = str(sel["category"])
 
-            ctx = build_path_context(detail, category_name=category_name)
+            ctx = build_path_context(
+                detail,
+                category_name=category_name,
+                genre_hint=str(sel.get("genre") or ""),
+            )
             rel_path = render_path_template(path_template, ctx) if per_video_dir else ""
             if target_path:
                 rel_path = f"{target_path.strip('/')}/{rel_path}".strip("/")

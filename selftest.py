@@ -63,12 +63,33 @@ def main() -> int:
     ranks = [quality_rank(i["quality"]) for i in by_quality["items"]]
     ok &= check("清晰度降序", ranks == sorted(ranks, reverse=True))
 
-    print("\n=== 6. 筛选 ===")
-    flt = svc.list_videos(category=1, page=1, pages=1, regions=["US"])
-    ok &= check("地区筛选生效", all("US" in (i["region"] or "") for i in flt["items"]), f"{flt['shown']} 条")
+    print("\n=== 6. 筛选（服务端，站点真实支持）===")
+    # 关键回归：年份筛选必须是服务端全站筛选，而不是只筛当前页
+    y = svc.list_videos(category=1, page=1, pages=1, year="2026")
+    yrs = {i["year"] for i in y["items"]}
+    ok &= check("year=2026 返回的整页都是 2026", yrs == {"2026"}, str(sorted(yrs))[:40])
+    ok &= check("year=2026 有全站多页结果", y["total_pages"] > 5, f"共 {y['total_pages']} 页")
+
+    g = svc.list_videos(category=1, page=1, pages=1, genre="动作")
+    ok &= check("class=动作 是真实筛选（结果集不同于基准）",
+                len({i["id"] for i in g["items"]} & {i["id"] for i in data["items"]}) < len(data["items"]),
+                f"动作 {g['total_pages']} 页")
+    gy = svc.list_videos(category=1, page=1, pages=1, year="2026", genre="动作")
+    ok &= check("年份+类型 可组合", gy["total_pages"] > 0, f"2026+动作 {gy['total_pages']} 页")
+
     flt2 = svc.list_videos(category=1, page=1, pages=1, min_score=8)
     vals = [float(i["score"] or 0) for i in flt2["items"]]
     ok &= check("最低分筛选生效", all(v >= 8 for v in vals), f"{flt2['shown']} 条")
+
+    print("\n=== 6b. 关键回归：《爆发夜》类问题 ===")
+    # 曾经：年份筛选只作用于当前页，导致 2026 的片在第 2 页就找不到
+    found_on = None
+    for p in range(1, 4):
+        r = svc.list_videos(category=1, page=p, pages=1, year="2026")
+        if any("爆发夜" in (i["title"] or "") for i in r["items"]):
+            found_on = p
+            break
+    ok &= check("2026 筛选能跨页找到目标影片", found_on is not None, f"第 {found_on} 页" if found_on else "前 3 页未找到")
 
     print("\n=== 7. 分页上限（防全站拉取）===")
     multi = svc.list_videos(category=4, page=1, pages=2)

@@ -7,14 +7,17 @@ const state = {
   pages: 1,
   keyword: '',
   sort: 'default',
-  order: 'desc',
-  years: new Set(),
-  regions: new Set(),
-  qualities: new Set(),
+  orderDir: 'desc',
+  // 服务端筛选项（站点真实支持）
+  year: '',
+  area: '',
+  genre: '',
+  serverOrder: '',
   minScore: null,
   items: [],
   selected: new Map(),   // vod_id -> {title, link_indexes}
   facets: { year: [], region: [], quality: [] },
+  options: { genres: [], regions: [], orders: [], categories: [] },
   hasNext: false,
   cid: '0',
   crumb: [],
@@ -81,6 +84,21 @@ async function loadLayout() {
   } catch (e) { state.template = DEFAULT_TEMPLATE; }
 }
 
+async function loadOptions() {
+  try {
+    const d = await api('/api/facets');
+    state.options = {
+      genres: d.genres || [],
+      regions: d.regions || [],
+      orders: d.orders || [],
+      categories: d.categories || [],
+    };
+    $('svOrder').innerHTML = (d.orders || []).map((o) =>
+      `<option value="${esc(o.value)}">${esc(o.name)}</option>`).join('') ||
+      '<option value="">网站默认</option>';
+  } catch (e) { /* 忽略 */ }
+}
+
 /* ---------------- 分类与筛选 ---------------- */
 async function loadTabs() {
   const { categories } = await api('/api/categories');
@@ -92,7 +110,7 @@ async function loadTabs() {
       state.keyword = '';
       $('searchInput').value = '';
       state.page = 1; state.pages = 1;
-      state.years.clear(); state.regions.clear(); state.qualities.clear();
+      state.year = ''; state.area = ''; state.genre = '';
       load();
     };
   });
@@ -110,22 +128,31 @@ function renderFacets() {
   const group = (label, key, values) => {
     if (!values || !values.length) return;
     parts.push(`<span class="chip-sep">${label}</span>`);
-    for (const v of values.slice(0, 14)) {
-      const on = state[key].has(v.value);
-      parts.push(`<span class="chip ${on ? 'on' : ''}" data-key="${key}" data-val="${esc(v.value)}">${esc(v.value)} <i>${v.count}</i></span>`);
+    for (const v of values.slice(0, 16)) {
+      const on = state[key] === v.value;
+      parts.push(`<span class="chip ${on ? 'on' : ''}" data-key="${key}" data-val="${esc(v.value)}">${esc(v.value)}${v.count ? ` <i>${v.count}</i>` : ''}</span>`);
     }
   };
-  group('年份', 'years', state.facets.year);
-  group('地区', 'regions', state.facets.region);
-  group('清晰度', 'qualities', state.facets.quality);
+  // 年份来自服务端分面；类型/地区来自站点支持的筛选清单
+  group('类型', 'genre', (state.options.genres || []).map((g) => ({ value: g })));
+  group('年份', 'year', state.facets.year);
+  group('地区', 'area', state.facets.region);
+  if (state.year || state.area || state.genre) {
+    parts.push('<span class="chip" data-clear="1">✕ 清除筛选</span>');
+  }
   bar.innerHTML = parts.join('');
 
   bar.querySelectorAll('.chip').forEach((el) => {
     el.onclick = () => {
-      const key = el.dataset.key, val = el.dataset.val;
-      if (state[key].has(val)) state[key].delete(val); else state[key].add(val);
-      renderFacets();  // 重新渲染以反映选中态
-      renderList();    // 本地即时筛选，不再请求站点
+      if (el.dataset.clear) {
+        state.year = ''; state.area = ''; state.genre = '';
+      } else {
+        const key = el.dataset.key, val = el.dataset.val;
+        // 服务端筛选：切换后需要重新请求站点（结果集变了）
+        state[key] = (state[key] === val) ? '' : val;
+      }
+      state.page = 1;
+      load();
     };
   });
 }
@@ -143,10 +170,14 @@ async function load() {
     page: String(state.page),
     pages: String(state.pages),
     sort: state.sort,
-    order: state.order,
+    order_dir: state.orderDir,
   });
   if (state.keyword) p.set('keyword', state.keyword);
   else p.set('category', String(state.category));
+  if (state.year) p.set('year', state.year);
+  if (state.area) p.set('area', state.area);
+  if (state.genre) p.set('genre', state.genre);
+  if (state.serverOrder) p.set('order', state.serverOrder);
   if (state.minScore != null) p.set('min_score', String(state.minScore));
 
   try {
@@ -154,9 +185,14 @@ async function load() {
     state.items = data.items;
     state.facets = data.facets;
     state.hasNext = data.has_next;
+    const sf = data.server_filters || {};
+    const active = [sf.year && `年份 ${sf.year}`, sf.area && `地区 ${sf.area}`, sf.class && `类型 ${sf.class}`]
+      .filter(Boolean).join(' · ');
     $('pageInfo').textContent =
-      `第 ${data.page}–${data.last_page} 页 · 本次抓取 ${data.collected} 条 · 显示 ${data.shown} 条` +
-      (data.max_pages ? `（单次最多 ${data.max_pages} 页）` : '');
+      `第 ${data.page}–${data.last_page} 页 · 本页 ${data.collected} 条 · 显示 ${data.shown} 条` +
+      (data.total_pages ? ` · 全站 ${data.total_pages} 页` : '') +
+      (active ? ` · 筛选：${active}` : '') +
+      `（单次最多 ${data.max_pages} 页）`;
     $('btnMore').disabled = !data.has_next;
     renderFacets();
     renderList();
@@ -169,15 +205,7 @@ async function load() {
 }
 
 function passesFilters(it) {
-  if (state.years.size && !state.years.has((it.year || '').trim())) return false;
-  if (state.regions.size) {
-    const regs = String(it.region || '').split(',').map((s) => s.trim());
-    if (!regs.some((r) => state.regions.has(r))) return false;
-  }
-  if (state.qualities.size) {
-    const q = String(it.quality || '').toLowerCase();
-    if (![...state.qualities].some((v) => q.includes(v.toLowerCase()))) return false;
-  }
+  // year/area/genre 已由服务端筛选，这里只处理评分下限
   if (state.minScore != null && Number(it.score || 0) < state.minScore) return false;
   return true;
 }
@@ -221,7 +249,8 @@ function toggleSelect(id) {
   if (state.selected.has(id)) state.selected.delete(id);
   else {
     const it = state.items.find((x) => x.id === id);
-    state.selected.set(id, { vod_id: id, title: it ? it.title : '', link_indexes: null });
+    // 带上当前浏览的类型，作为目录名里的权威 genre
+    state.selected.set(id, { vod_id: id, title: it ? it.title : '', link_indexes: null, genre: state.genre || '' });
   }
   updateSelBar();
   renderList();
@@ -279,7 +308,7 @@ async function openDetail(id) {
     const pickAll = $('detailBody').querySelector('#btnPickAll');
     if (pickAll) pickAll.onclick = () => {
       const it = state.items.find((x) => x.id === id);
-      state.selected.set(id, { vod_id: id, title: it ? it.title : d.title, link_indexes: null });
+      state.selected.set(id, { vod_id: id, title: it ? it.title : d.title, link_indexes: null, genre: state.genre || '' });
       updateSelBar(); renderList();
       $('detailModal').hidden = true;
       openTransfer();
@@ -294,7 +323,7 @@ async function transferSingle(id, linkIndex) {
     const d = await api(`/api/videos/${id}`);
     const link = (d.links || [])[linkIndex];
     if (!link || link.locked) throw new Error('该链接不可用（需先登录站点）');
-    const only = { vod_id: id, link_indexes: [linkIndex], title: d.title };
+    const only = { vod_id: id, link_indexes: [linkIndex], title: d.title, genre: state.genre || '' };
     const plan = await api('/api/transfer/plan', {
       method: 'POST',
       body: JSON.stringify({ selections: [only], cid: state.cid }),
@@ -692,7 +721,8 @@ $('searchInput').onkeydown = (e) => {
   load();
 };
 $('sortSelect').onchange = () => { state.sort = $('sortSelect').value; load(); };
-$('orderSelect').onchange = () => { state.order = $('orderSelect').value; load(); };
+$('svOrder').onchange = () => { state.serverOrder = $('svOrder').value; state.page = 1; load(); };
+$('orderSelect').onchange = () => { state.orderDir = $('orderSelect').value; load(); };
 $('minScore').onchange = () => {
   const v = $('minScore').value;
   state.minScore = v === '' ? null : Number(v);
@@ -716,6 +746,7 @@ document.onkeydown = (e) => {
 (async function boot() {
   await refreshStatus();
   await loadLayout();
+  await loadOptions();
   await loadTabs();
   await load();
   updateSelBar();

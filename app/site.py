@@ -28,6 +28,31 @@ CATEGORIES: list[dict[str, Any]] = [
 
 CATEGORY_BY_ID = {c["id"]: c for c in CATEGORIES}
 
+# 站点真实的类型（genre）列表。
+# 依据：?class=<名称> 是严格的服务端筛选——乱码值返回 0 条，
+# 而下列取值各自返回数页到数百页的不同结果集，说明站点数据库确实有类型字段
+# （只是详情页模板没有渲染出来）。列表由实测枚举得出。
+GENRES: list[str] = [
+    "动作", "喜剧", "爱情", "科幻", "恐怖", "悬疑", "惊悚", "剧情", "战争",
+    "犯罪", "冒险", "奇幻", "动画", "纪录", "历史", "音乐", "家庭", "运动",
+    "传记", "伦理", "古装",
+]
+
+# 站点 areas 用 ISO 码与中文名混用，两者都实测可用
+REGIONS: list[str] = [
+    "US", "CN", "JP", "KR", "HK", "TW", "GB", "FR", "DE", "IT", "ES", "IN",
+    "CA", "AU", "BR", "NL", "PL", "SE", "TH", "RU", "MX", "TR",
+    "美国", "日本", "韩国", "中国", "中国香港", "中国台湾",
+]
+
+# 站点支持的排序（服务端）
+ORDERS: list[dict[str, str]] = [
+    {"value": "", "name": "网站默认"},
+    {"value": "time", "name": "按时间"},
+    {"value": "score", "name": "按评分"},
+    {"value": "hits", "name": "按热度"},
+]
+
 _SHARE_HOST_RE = re.compile(
     r"https?://(?:www\.)?(?:115|115cdn|anxia|115pan)\.com/s/([0-9a-zA-Z_\-]+)"
     r"(?:[^\s]*?[?&#](?:password|pwd)=([0-9a-zA-Z]{0,8}))?",
@@ -241,21 +266,57 @@ class Wn4kClient:
         }
 
     # ---- 列表 ----------------------------------------------------------
-    def list_category(self, type_id: int, page: int = 1) -> dict[str, Any]:
+    def list_category(
+        self,
+        type_id: int,
+        page: int = 1,
+        *,
+        year: str = "",
+        area: str = "",
+        cls: str = "",
+        order: str = "",
+    ) -> dict[str, Any]:
+        """列出分类下的影片。
+
+        站点支持**服务端筛选**（已实测：`?year=2026` 返回的整页都是 2026，
+        `?class=动作` 与基准结果集不同，而乱码取值返回 0 条）。
+        所以筛选交给站点做，既准确又不需要遍历全站。
+        """
         page = max(1, int(page))
         path = f"/vodtype/{type_id}/" if page == 1 else f"/vodtype/{type_id}-{page}/"
-        return self._parse_list(path, source=f"category:{type_id}", page=page)
+        params: dict[str, str] = {}
+        if year:
+            params["year"] = year
+        if area:
+            params["area"] = area
+        if cls:
+            params["class"] = cls
+        if order:
+            params["order"] = order
+        return self._parse_list(path, source=f"category:{type_id}", page=page, params=params)
 
-    def search(self, keyword: str, page: int = 1) -> dict[str, Any]:
+    def search(self, keyword: str, page: int = 1, *, year: str = "", order: str = "") -> dict[str, Any]:
         from urllib.parse import quote
 
         page = max(1, int(page))
         kw = quote(keyword, safe="")
         path = f"/vodsearch/-------------/?wd={kw}" if page == 1 else f"/vodsearch/-------------/?wd={kw}&page={page}"
-        return self._parse_list(path, source="search", page=page)
+        params: dict[str, str] = {}
+        if year:
+            params["year"] = year
+        if order:
+            params["order"] = order
+        return self._parse_list(path, source="search", page=page, params=params)
 
-    def _parse_list(self, path: str, *, source: str, page: int) -> dict[str, Any]:
-        resp = self.http.get(self.url(path))
+    def _parse_list(
+        self,
+        path: str,
+        *,
+        source: str,
+        page: int,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        resp = self.http.get(self.url(path), params=params or None)
         resp.encoding = resp.encoding or "utf-8"
         soup = BeautifulSoup(resp.text or "", "lxml")
         items: list[VodItem] = []
