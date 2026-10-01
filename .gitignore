@@ -1,0 +1,9 @@
+# 忽略凭证与本地缓存
+data/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

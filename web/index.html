@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>蜗牛4K 精选 · 115 转存工作台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🐌</span>
+    <div>
+      <div class="brand-title">蜗牛4K 精选 → 115 转存</div>
+      <div class="brand-sub">按需浏览 · 分类筛选 · 逐条确认后转存</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="conn" id="connSite" title="蜗牛站点登录状态">站点 <b>—</b></div>
+    <div class="conn" id="conn115" title="115 登录状态">115 <b>—</b></div>
+    <button class="btn ghost" id="btnLogin">登录设置</button>
+    <button class="btn ghost" id="btnHistory">记录</button>
+    <button class="btn primary" id="btnTransferTop" disabled>转存所选 <span id="selCount">0</span></button>
+  </div>
+</header>
+
+<div class="toolbar">
+  <nav class="tabs" id="tabs"></nav>
+  <div class="toolbar-row">
+    <input class="input" id="searchInput" placeholder="站内搜索片名…（回车）">
+    <label class="field">
+      <span>排序</span>
+      <select id="sortSelect">
+        <option value="default">网站默认</option>
+        <option value="score">评分</option>
+        <option value="year">年份</option>
+        <option value="quality">清晰度</option>
+        <option value="title">片名</option>
+        <option value="id">最新收录</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>方向</span>
+      <select id="orderSelect">
+        <option value="desc">降序</option>
+        <option value="asc">升序</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>最低分</span>
+      <input class="input tiny" id="minScore" type="number" step="0.5" min="0" max="10" placeholder="0">
+    </label>
+    <button class="btn ghost" id="btnMore">加载更多（+1 页）</button>
+    <span class="muted" id="pageInfo"></span>
+  </div>
+  <div class="chips" id="filterBar"></div>
+</div>
+
+<main>
+  <div class="selbar" id="selbar" hidden>
+    <span id="selText"></span>
+    <button class="btn ghost small" id="btnClearSel">清空选择</button>
+  </div>
+  <section class="grid" id="grid"></section>
+  <div class="empty" id="empty" hidden></div>
+</main>
+
+<!-- 详情 -->
+<div class="modal" id="detailModal" hidden>
+  <div class="modal-box wide">
+    <button class="modal-close" data-close>×</button>
+    <div id="detailBody" class="detail-body"></div>
+  </div>
+</div>
+
+<!-- 登录设置 -->
+<div class="modal" id="loginModal" hidden>
+  <div class="modal-box">
+    <button class="modal-close" data-close>×</button>
+    <h3>蜗牛（wn4k）登录</h3>
+    <p class="muted">站点网盘链接需登录后可见。若站点开启验证码，请改用 Cookie 导入。</p>
+    <div class="form-row">
+      <input class="input" id="siteUser" placeholder="站点账号">
+      <input class="input" id="sitePwd" type="password" placeholder="站点密码">
+      <button class="btn primary" id="btnSiteLogin">登录站点</button>
+    </div>
+    <div class="form-row">
+      <input class="input" id="siteCookie" placeholder="或粘贴站点 Cookie">
+      <button class="btn ghost" id="btnSiteCookie">导入 Cookie</button>
+    </div>
+    <div class="msg" id="siteMsg"></div>
+
+    <h3>115 登录</h3>
+    <p class="muted">推荐扫码；转存需要网页版 Cookie（开放平台令牌不支持转存）。</p>
+    <div class="form-row">
+      <button class="btn primary" id="btnQr">生成二维码</button>
+      <button class="btn ghost" id="btn115Logout">退出 115</button>
+    </div>
+    <div class="qr-wrap" id="qrWrap" hidden>
+      <img id="qrImg" alt="115 登录二维码">
+      <div class="qr-status" id="qrStatus">等待扫码…</div>
+    </div>
+    <div class="form-row">
+      <input class="input" id="p115Cookie" placeholder="或粘贴 115 Cookie（含 UID/CID/SEID）">
+      <button class="btn ghost" id="btn115Cookie">保存 Cookie</button>
+    </div>
+    <div class="msg" id="p115Msg"></div>
+  </div>
+</div>
+
+<!-- 转存 -->
+<div class="modal" id="transferModal" hidden>
+  <div class="modal-box">
+    <button class="modal-close" data-close>×</button>
+    <h3>转存确认</h3>
+    <div class="dir-head">
+      <button class="btn ghost small" id="dirUp">↑ 上级</button>
+      <div class="crumb" id="crumb"></div>
+      <button class="btn ghost small" id="btnNewDir">新建文件夹</button>
+    </div>
+    <div class="dir-list" id="dirList"></div>
+    <div class="form-row">
+      <input class="input" id="newDirName" placeholder="新文件夹名称（在当前目录下创建）">
+      <button class="btn ghost" id="btnDoNewDir">创建</button>
+    </div>
+
+    <h4 class="sec-title">目录结构（按影片自动分层）</h4>
+    <div class="form-row">
+      <input class="input" id="tplInput" placeholder="{category}/{genre}/{year}/{title}">
+      <button class="btn ghost small" id="btnResetTpl">恢复默认</button>
+      <button class="btn ghost small" id="btnEditGenres">类型规则</button>
+    </div>
+    <div class="tpl-hint">
+      占位符：<code>{category}</code> 分类 ·
+      <code>{genre}</code> 类型（关键词推断）·
+      <code>{year}</code> 年份 ·
+      <code>{title}</code> 片名 ·
+      <code>{region}</code> 地区 ·
+      <code>{quality}</code> 清晰度
+    </div>
+    <div class="tpl-preview" id="tplPreview"></div>
+
+    <div class="plan" id="planBox"></div>
+    <div class="msg" id="transferMsg"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnPreview">预览将转存的内容</button>
+      <button class="btn primary" id="btnDoTransfer">确认转存</button>
+    </div>
+    <div class="job" id="jobBox" hidden></div>
+  </div>
+</div>
+
+<!-- 类型规则 -->
+<div class="modal" id="genreModal" hidden>
+  <div class="modal-box wide">
+    <button class="modal-close" data-close>×</button>
+    <h3>类型推断规则</h3>
+    <p class="muted">
+      蜗牛站点没有「动作/喜剧」这类类型字段，所以这一层由本表关键词推断。
+      片名命中权重最高，简介次之。未命中的影片归入
+      <b>其他</b>。改完点保存立即生效。
+    </p>
+    <div id="genreBody" class="genre-body"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btnGenreReset">恢复默认</button>
+      <button class="btn ghost" id="btnGenreAdd">新增类型</button>
+      <button class="btn primary" id="btnGenreSave">保存</button>
+    </div>
+    <div class="msg" id="genreMsg"></div>
+  </div>
+</div>
+
+<!-- 记录 -->
+<div class="modal" id="historyModal" hidden>
+  <div class="modal-box wide">
+    <button class="modal-close" data-close>×</button>
+    <h3>操作记录</h3>
+    <div id="historyBody" class="history"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
