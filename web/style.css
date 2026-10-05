@@ -147,8 +147,6 @@ main { padding: 18px 20px 80px; }
   color: var(--muted); font-size: 12.5px;
 }
 .page-jump .input { min-width: 68px; width: 68px; text-align: center; }
-.load-sentinel { height: 1px; }
-.load-hint { text-align: center; color: var(--muted); font-size: 12.5px; padding: 10px 0 4px; }
 
 /* ---------- 弹窗 ---------- */
 .modal {

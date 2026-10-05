@@ -21,7 +21,6 @@ const state = {
   totalPages: 0,
   lastPage: 1,
   hasNext: false,
-  suppressAuto: false,
   cid: '0',
   crumb: [],
   template: '',
@@ -260,10 +259,9 @@ async function load() {
     const active = [sf.year && `年份 ${sf.year}`, sf.area && `地区 ${sf.area}`, sf.class && `类型 ${sf.class}`]
       .filter(Boolean).join(' · ');
     $('pageInfo').textContent =
-      `第 ${data.page}–${data.last_page} 页 · 本页 ${data.collected} 条 · 显示 ${data.shown} 条` +
+      `第 ${data.page} 页 · 本页 ${data.collected} 条 · 显示 ${data.shown} 条` +
       (data.total_pages ? ` · 全站 ${data.total_pages} 页` : '') +
-      (active ? ` · 筛选：${active}` : '') +
-      `（单次最多 ${data.max_pages} 页）`;
+      (active ? ` · 筛选：${active}` : '');
     renderFacets();
     renderList();
     renderPager();
@@ -271,41 +269,28 @@ async function load() {
     $('grid').innerHTML = '';
     $('empty').hidden = false;
     $('empty').textContent = '加载失败：' + e.message;
-    $('btnMore').disabled = true;
   }
 }
 
 function renderPager() {
   const cur = state.lastPage || 1;
   const total = state.totalPages || 0;
-  // 累积多页时显示区间，避免与「当前页」混淆
-  const label = state.pages > 1 ? `第 ${state.page}–${cur} 页` : `第 ${cur} 页`;
-  $('pgInfo').textContent = total ? `${label} / 共 ${total} 页` : label;
+  $('pgInfo').textContent = total ? `第 ${cur} 页 / 共 ${total} 页` : `第 ${cur} 页`;
   $('pgPrev').disabled = state.page <= 1;
   $('pgNext').disabled = !state.hasNext;
   if ($('pgJump')) {
     $('pgJump').value = String(cur + 1);
     $('pgJump').max = String(total || 1);
   }
-  $('loadHint').textContent = state.hasNext
-    ? (state.pages >= ACCUM_CAP
-        ? `当前已叠加 ${ACCUM_CAP} 页（单次上限），请用下方「下一页」继续`
-        : '向下滚动可自动加载下一页')
-    : '已经到底了';
 }
 
-/* 翻页：显式跳页时先按单页加载，避免刚跳完又被自动叠加一页 */
+/* 翻页：每次只加载一页，语义清晰 */
 function gotoPage(n) {
   const target = Math.max(1, Number(n) || 1);
   if (state.totalPages && target > state.totalPages) return;
   state.page = target;
   state.pages = 1;
-  state.suppressAuto = true;   // 本次加载后不自动续页，等用户再滚动
-  load().finally(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    // 稍后恢复自动叠加，但要求用户先滚动离开底部
-    setTimeout(() => { state.suppressAuto = false; }, 800);
-  });
+  load().then(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
 }
 
 function nextPage() {
@@ -863,58 +848,11 @@ $('minScore').onchange = () => {
   state.minScore = v === '' ? null : Number(v);
   renderList();
 };
-$('btnMore').onclick = () => { state.pages = Math.min(state.pages + 1, 5); state.page = 1; load(); };
-
-/* ---------- 底部分页 ---------- */
+/* ---------- 底部分页（唯一的翻页方式） ---------- */
 $('pgPrev').onclick = prevPage;
 $('pgNext').onclick = nextPage;
 $('pgGo').onclick = () => gotoPage($('pgJump').value);
 $('pgJump').onkeydown = (e) => { if (e.key === 'Enter') gotoPage($('pgJump').value); };
-
-/* ---------- 滚动到底自动加载下一页（叠加模式） ---------- */
-let loadingMore = false;
-const ACCUM_CAP = 5;   // 与后端 MAX_PAGES 一致：单次叠加最多 5 页
-
-function setupInfiniteScroll() {
-  const sentinel = $('loadSentinel');
-  if (!sentinel || !('IntersectionObserver' in window)) return;
-  const io = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      if (loadingMore || !state.hasNext || state.suppressAuto) continue;
-      // 叠加模式受 5 页上限约束：到达上限后由用户用底部翻页继续
-      if (state.pages >= ACCUM_CAP) {
-        $('loadHint').textContent = `当前已叠加 ${ACCUM_CAP} 页（单次上限），请用底部「下一页」继续`;
-        continue;
-      }
-      loadingMore = true;
-      state.pages += 1;   // 保持 page 不变，向后叠加
-      load().finally(() => { loadingMore = false; });
-    }
-  }, { rootMargin: '600px' });
-  io.observe(sentinel);
-}
-
-/* 滚动接近底部时给个提示（不额外发请求） */
-function setupScrollHint() {
-  let ticking = false;
-  window.addEventListener('scroll', () => {
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(() => {
-      ticking = false;
-      const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 300;
-      if (!state.hasNext) { $('loadHint').textContent = '已经到底了'; return; }
-      if (state.pages >= ACCUM_CAP && nearBottom) {
-        $('loadHint').textContent = `当前已叠加 ${ACCUM_CAP} 页（单次上限），请用底部「下一页」继续`;
-      } else if (nearBottom) {
-        $('loadHint').textContent = '正在加载下一页…';
-      } else {
-        $('loadHint').textContent = '向下滚动可自动加载下一页';
-      }
-    });
-  }, { passive: true });
-}
 $('btnClearSel').onclick = () => { state.selected.clear(); updateSelBar(); renderList(); };
 $('btnTransferTop').onclick = () => openTransfer();
 
@@ -934,8 +872,6 @@ document.onkeydown = (e) => {
   await loadLayout();
   await loadOptions();
   await loadTabs();
-  setupInfiniteScroll();
-  setupScrollHint();
   await load();
   updateSelBar();
 })();
