@@ -86,8 +86,15 @@ class RateLimitedSession:
         return self.request("POST", url, **kwargs)
 
     # ---- cookie --------------------------------------------------------
-    def set_cookie_string(self, cookie: str) -> None:
-        """把浏览器里复制的一整条 cookie 串灌进会话。"""
+    def set_cookie_string(self, cookie: str, domain: str = "") -> None:
+        """把浏览器里复制的一整条 cookie 串灌进会话。
+
+        domain 必须传对：若用 ``cookies.set(name, value)``（domain 为空），
+        这条 cookie 会匹配所有域名，并且**会遮蔽服务端随后 Set-Cookie 下发的同名值**。
+        实测后果：带着旧 cookie 登录蜗牛，站点返回「登录成功」，
+        但请求里仍发送旧的 user_check，会话实际无效（访问 /user/index/ 被 302 回登录页）。
+        所以这里显式绑定 domain，让服务端的新值能正常覆盖它。
+        """
         self.session.cookies.clear()
         for part in (cookie or "").split(";"):
             part = part.strip()
@@ -95,8 +102,15 @@ class RateLimitedSession:
                 continue
             name, _, value = part.partition("=")
             name, value = name.strip(), value.strip()
-            if name:
+            if not name:
+                continue
+            if domain:
+                self.session.cookies.set(name, value, domain=domain, path="/")
+            else:
                 self.session.cookies.set(name, value)
+
+    def clear_cookies(self) -> None:
+        self.session.cookies.clear()
 
     def cookie_string(self) -> str:
         return "; ".join(f"{c.name}={c.value}" for c in self.session.cookies)

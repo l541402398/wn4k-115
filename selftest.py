@@ -24,7 +24,7 @@ def check(label: str, cond: bool, extra: str = "") -> bool:
 
 def main() -> int:
     ok = True
-    print("=== 1. 链接识别 ===")
+    print("\n=== 1. 链接识别 ===")
     cases = [
         ("https://115.com/s/swzab12c?password=abc1", "share", "swzab12c", "abc1"),
         ("https://115cdn.com/s/abcd1234", "share", "abcd1234", ""),
@@ -35,6 +35,22 @@ def main() -> int:
     for url, kind, code, rcode in cases:
         got = classify_link(url)
         ok &= check(f"{url[:42]} -> {kind}", got == (kind, code, rcode), str(got))
+
+    print("\n=== 1b. Cookie 必须绑定 domain（防遮蔽服务端新值）===")
+    # 实测教训：domain 为空的 cookie 会遮蔽服务端 Set-Cookie 的同名值，
+    # 导致「登录成功但会话无效」（访问 /user/index/ 被 302 回登录页）。
+    from app.site import Wn4kClient as _W
+    from app.p115 import P115Client as _P
+
+    w = _W()
+    w.set_cookie("a=1; b=2")
+    ok &= check("站点导入的 cookie 都带 domain",
+                all(c.domain for c in w.http.session.cookies),
+                str([(c.name, c.domain) for c in w.http.session.cookies]))
+    p = _P(cookie="UID=1; CID=2; SEID=3")
+    ok &= check("115 导入的 cookie 绑定到 .115.com",
+                all(c.domain == ".115.com" for c in p.http.session.cookies),
+                str([(c.name, c.domain) for c in p.http.session.cookies]))
 
     print("\n=== 2. 清晰度排序权重 ===")
     ok &= check("4K > 1080P", quality_rank("4K WEB") > quality_rank("1080P蓝光"))

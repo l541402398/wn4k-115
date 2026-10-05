@@ -118,7 +118,12 @@ class P115Client:
 
     # ---- 会话 ----------------------------------------------------------
     def set_cookie(self, cookie: str) -> None:
-        self.http.set_cookie_string(cookie)
+        """导入 cookie。
+
+        绑定到 ``.115.com``（含子域）：115 的接口分布在 webapi / my / proapi 等
+        多个子域，且不绑定 domain 的 cookie 会遮蔽服务端下发的同名值。
+        """
+        self.http.set_cookie_string(cookie, domain=".115.com")
         self._user = {}
 
     def cookie_string(self) -> str:

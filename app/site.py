@@ -254,7 +254,11 @@ class Wn4kClient:
         return urljoin(self.base_url + "/", path.lstrip("/"))
 
     def set_cookie(self, cookie: str) -> None:
-        self.http.set_cookie_string(cookie)
+        """导入 cookie。必须绑定站点域名，否则会遮蔽服务端下发的同名 cookie。"""
+        from urllib.parse import urlsplit
+
+        host = urlsplit(self.base_url).hostname or ""
+        self.http.set_cookie_string(cookie, domain=host)
 
     def cookie_string(self) -> str:
         """当前会话的 Cookie 串（用于持久化登录态）。"""
@@ -267,6 +271,11 @@ class Wn4kClient:
         若站点开启验证码，则本方法会明确失败并提示改用 cookie 导入。
         """
         self.username = username
+        # 关键：先清空旧会话。
+        # 带着过期 cookie 登录时，站点会返回「登录成功」，但请求里仍会发送旧的
+        # user_check，导致会话实际无效（/user/index/ 被 302 回登录页）。
+        # 干净登录才能拿到可用的新会话。
+        self.http.clear_cookies()
         # 先取一次登录页，拿到必要 cookie
         try:
             self.http.get(self.url("/user/login/"))
