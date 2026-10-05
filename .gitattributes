@@ -1,0 +1,29 @@
+# 行尾与编码策略
+#
+# 为什么需要这个文件：
+# start.cmd 必须是「CRLF 换行 + 系统 ANSI(GBK) 编码」才能在中文 Windows 的
+# cmd.exe 里正确解析。若被 git 规范成 LF，会出现「'd' 不是内部或外部命令」
+# 这类诡异错误（cd /d 被拆坏）。
+#
+# 因此 .cmd 标记为 -text（二进制），git 不再改写其行尾与内容，
+# 仓库里存的就是可直接运行的原始字节，clone 或下载 ZIP 都一致。
+
+# Windows 批处理：不做任何转换，保持原始字节
+*.cmd -text
+*.bat -text
+
+# 源码与文本：统一 LF，跨平台一致
+*.py    text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+
+# Shell 脚本：必须 LF，否则 Linux/macOS 下会报 bad interpreter
+*.sh    text eol=lf
